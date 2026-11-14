@@ -1,0 +1,1675 @@
+import pandas as pd
+import textwrap
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+from google.colab import auth
+import gspread
+from google.auth import default
+try:
+    auth.authenticate_user()
+    creds, _ = default()
+    gc = gspread.authorize(creds)
+    nome_planilha = 'help1'
+    planilha = gc.open(nome_planilha)
+    aba = planilha.sheet1
+except Exception as e:
+    print(f"Erro ao autenticar ou abrir a planilha: {e}")
+pagina = 'Grupo_Z'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+def quebrar_texto(texto, largura=30):
+    if not isinstance(texto, str):
+        return texto
+    return '\n'.join(textwrap.wrap(texto, width=largura))
+col_x = [c for c in df.columns if '.0.' in c.lower()]
+if len(col_x) > 0:
+    df_contagem = df[col_x[0]].value_counts().reset_index()
+    df_contagem.columns = ['País', 'Quantidade']
+    df_contagem['País'] = df_contagem['País'].apply(lambda val: quebrar_texto(val, largura=15))
+    plt.figure(figsize=(10, 6))
+    ax = sns.barplot(
+      data=df_contagem,
+      x='País',
+      y='Quantidade',
+      palette='muted',
+      hue='País',
+      legend=False,
+      width=0.6
+    )
+    for p in ax.patches:
+        ax.annotate(f'{int(p.get_height())}',
+                    (p.get_x() + p.get_width() / 2., p.get_height()),
+                    ha='center', va='center',
+                    xytext=(0, 9),
+                    textcoords='offset points',
+                    fontsize=11, fontweight='bold')
+    plt.title('Quantidade de intercambistas por país', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel('Quantidade de Respondentes', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.ylim(0, df_contagem['Quantidade'].max() + 1)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Coluna '.0.' não encontrada na aba Grupo_Z.")
+def quebrar_texto(texto, largura=30):
+    if not isinstance(texto, str):
+        return texto
+    return '\n'.join(textwrap.wrap(texto, width=largura))
+def gerar_grafico_por_pagina(nome_pagina, titulo_grafico):
+    try:
+        aba_sel = planilha.worksheet(nome_pagina)
+        dados = aba_sel.get_all_records()
+        df_local = pd.DataFrame(dados)
+    except Exception as e:
+        print(f"Erro ao acessar a aba '{nome_pagina}': {e}")
+        return
+    prefixo_grupo = nome_pagina.replace('Grupo_', '')
+    col_multipla = [
+        c for c in df_local.columns
+        if '.7.' in c.lower() and f".{prefixo_grupo.lower()}.7." in c.lower()
+    ]
+    if not col_multipla:
+        col_multipla = [c for c in df_local.columns if '.7.' in c.lower()]
+    linhas_locais = []
+    for idx, row in df_local.iterrows():
+        for col in col_multipla:
+            frequencia_resposta = row[col]
+            if pd.notna(frequencia_resposta) and str(frequencia_resposta).strip() != "":
+                inicio_colchete = col.find('[')
+                fim_colchete = col.find(']')
+                if inicio_colchete != -1 and fim_colchete != -1:
+                    espaco_nome = col[inicio_colchete+1:fim_colchete]
+                else:
+                    espaco_nome = col
+                linhas_locais.append({
+                    'Espaço da USP': quebrar_texto(espaco_nome, 25),
+                    'Frequência de Uso': quebrar_texto(str(frequencia_resposta).strip(), 20)
+                })
+    df_consolidado_local = pd.DataFrame(linhas_locais)
+    if not df_consolidado_local.empty:
+        plt.figure(figsize=(14, 8))
+        ax = sns.countplot(
+            data=df_consolidado_local,
+            y='Espaço da USP',
+            hue='Frequência de Uso',
+            palette='YlGnBu',
+            alpha=1,
+            edgecolor='black',
+            linewidth=0.4
+        )
+        plt.title(titulo_grafico, fontsize=16, pad=20, fontweight='bold')
+        plt.xlabel('Quantidade de Respondentes', fontsize=13, labelpad=10)
+        plt.ylabel('Espaços Avaliados', fontsize=13, labelpad=10)
+        plt.legend(title='Frequência de Uso', bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=11, title_fontsize=12)
+        plt.tight_layout()
+        plt.show()
+    else:
+        print(f"Nenhuma resposta válida encontrada para o grupo de perguntas na aba {nome_pagina}.")
+gerar_grafico_por_pagina('Grupo_C', 'Frequência de Uso dos espaços da USP nos chineses')
+gerar_grafico_por_pagina('Grupo_A', 'Frequência de Uso dos espaços da USP nos alemães')
+gerar_grafico_por_pagina('Grupo_O', 'Frequência de Uso dos espaços da USP dos demais países')
+gerar_grafico_por_pagina('Grupo_F', 'Frequência de Uso dos espaços da USP nos franceses')
+gerar_grafico_por_pagina('Grupo_I', 'Frequência de Uso dos espaços da USP nos italianos')
+gerar_grafico_por_pagina('Grupo_J', 'Frequência de Uso dos espaços da USP nos japoneses')
+gerar_grafico_por_pagina('Grupo_RU', 'Frequência de Uso dos espaços da USP nos ingleses')
+abas_grupos = ['Grupo_A', 'Grupo_C', 'Grupo_F', 'Grupo_I', 'Grupo_J', 'Grupo_O', 'Grupo_RU']
+linhas_consolidadas_todas = []
+for pagina in abas_grupos:
+    try:
+        aba_selecionada = planilha.worksheet(pagina)
+        dados_aba = aba_selecionada.get_all_records()
+        df_aba = pd.DataFrame(dados_aba)
+        prefixo_grupo = pagina.replace('Grupo_', '')
+        col_multipla_escolha = [
+            c for c in df_aba.columns
+            if '.7.' in c.lower() and f".{prefixo_grupo.lower()}.7." in c.lower()
+        ]
+        if not col_multipla_escolha:
+            col_multipla_escolha = [c for c in df_aba.columns if '.7.' in c.lower()]
+        for idx, row in df_aba.iterrows():
+            for col in col_multipla_escolha:
+                frequencia_resposta = row[col]
+                if pd.notna(frequencia_resposta) and str(frequencia_resposta).strip() != "":
+                    inicio_colchete = col.find('[')
+                    fim_colchete = col.find(']')
+                    if inicio_colchete != -1 and fim_colchete != -1:
+                        espaco_nome = col[inicio_colchete+1:fim_colchete]
+                    else:
+                        espaco_nome = col
+                    linhas_consolidadas_todas.append({
+                        'Espaço da USP': quebrar_texto(espaco_nome, 25),
+                        'Frequência de Uso': quebrar_texto(str(frequencia_resposta).strip(), 20)
+                    })
+    except Exception as e:
+        print(f"Aviso: Não foi possível processar a aba '{pagina}': {e}")
+df_consolidado_geral = pd.DataFrame(linhas_consolidadas_todas)
+if not df_consolidado_geral.empty:
+    plt.figure(figsize=(14, 8))
+    ax = sns.countplot(
+        data=df_consolidado_geral,
+        y='Espaço da USP',
+        hue='Frequência de Uso',
+        palette='YlGnBu',
+        alpha=1,
+        edgecolor='black',
+        linewidth=0.5
+    )
+    plt.title('Frequência de Uso de todos os espaços da USP', fontsize=16, pad=20, fontweight='bold')
+    plt.xlabel('Quantidade Total de Respondentes', fontsize=13, labelpad=10)
+    plt.ylabel('Espaços Avaliados', fontsize=13, labelpad=10)
+    plt.legend(title='Frequência de Uso', bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=11, title_fontsize=12)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Nenhum dado pôde ser consolidado de nenhuma das abas listadas com os critérios de filtro atuais.")
+pagina = 'Grupo_A'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_C'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_O'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_F'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_I'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_J'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+pagina = 'Grupo_RU'
+try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df = pd.DataFrame(dados_aba)
+except Exception as e:
+    print(f"Erro ao acessar a aba '{pagina}': {e}")
+col_x = [c for c in df.columns if '.33.' in c.lower()]
+col_y = [c for c in df.columns if '.35.' in c.lower()]
+if len(col_x) > 0 and len(col_y) > 0:
+    df_filtrado = df[
+        df[col_x[0]].notna() & (df[col_x[0]].astype(str).str.strip() != "") &
+        df[col_y[0]].notna() & (df[col_y[0]].astype(str).str.strip() != "")
+    ].copy()
+    tabela_cruzada = pd.crosstab(df_filtrado[col_y[0]], df_filtrado[col_x[0]])
+    tabela_cruzada.index = [quebrar_texto(idx, largura=30) for idx in tabela_cruzada.index]
+    tabela_cruzada.columns = [quebrar_texto(col, largura=20) for col in tabela_cruzada.columns]
+    plt.figure(figsize=(12, 7))
+    sns.heatmap(
+        tabela_cruzada,
+        annot=True,
+        fmt='d',
+        cmap='YlGnBu',
+        cbar_kws={'label': 'Quantidade de Respondentes'},
+        linewidths=0.5
+    )
+    plt.title('Relação de escolaridade e profissão do segundo responsável', fontsize=14, pad=15)
+    plt.xlabel(quebrar_texto(col_x[0], largura=50), fontsize=12, labelpad=10)
+    plt.ylabel(quebrar_texto(col_y[0], largura=50), fontsize=12, labelpad=10)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Não foi possível encontrar as colunas 'C.30' ou 'C.32' de forma insensível a maiúsculas na aba Grupo_C.")
+def quebrar_texto(texto, largura=30):
+  if not isinstance(texto, str):
+    return texto
+  return "\n".join(textwrap.wrap(texto, width=largura))
+def padronizar_idade(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "menor de 5" in val_limpo or "menos de 5" in val_limpo:
+    return "Menos de 5 anos"
+  elif (
+      "entre 5 e 10" in val_limpo
+      or "entre 5 e 11" in val_limpo
+      or "entre 6 e 10" in val_limpo
+  ):
+    return "Entre 5 e 10 anos"
+  elif "entre 11 e 18" in val_limpo:
+    return "Entre 11 e 18 anos"
+  elif "19 anos ou mais" in val_limpo:
+    return "19 anos ou mais"
+  elif "não sei" in val_limpo or "nao sei" in val_limpo:
+    return "Não sei"
+  return valor.strip()
+def processar_e_plotar_grupo(pagina, planilha):
+  linhas_unica = []
+  try:
+    aba_selecionada = planilha.worksheet(pagina)
+    dados_aba = aba_selecionada.get_all_records()
+    df_aba = pd.DataFrame(dados_aba)
+    col_8 = [c for c in df_aba.columns if ".8." in c.lower()]
+    col_15 = [c for c in df_aba.columns if ".15." in c.lower()]
+    col_17 = [c for c in df_aba.columns if ".17." in c.lower()]
+    if col_8 and col_15 and col_17:
+      for idx, row in df_aba.iterrows():
+        val_8 = row[col_8[0]]
+        val_15 = row[col_15[0]]
+        val_17 = row[col_17[0]]
+        if (
+            pd.notna(val_8)
+            and str(val_8).strip() != ""
+            and pd.notna(val_15)
+            and str(val_15).strip() != ""
+            and pd.notna(val_17)
+            and str(val_17).strip() != ""
+        ):
+          linhas_unica.append({
+              "Viagem Internacional": padronizar_idade(str(val_8)),
+              "Primeira vez no Cinema": padronizar_idade(str(val_15)),
+              "Primeira vez no Museu": padronizar_idade(str(val_17)),
+          })
+  except Exception as e:
+    print(f"Erro ao processar a aba '{pagina}': {e}")
+    return
+  df_hist = pd.DataFrame(linhas_unica)
+  if not df_hist.empty:
+    categorias_unificadas = [
+        "Menos de 5 anos",
+        "Entre 5 e 10 anos",
+        "Entre 11 e 18 anos",
+        "19 anos ou mais",
+        "Não sei",
+    ]
+    tipo_categorico = pd.CategoricalDtype(
+        categories=categorias_unificadas, ordered=True
+    )
+    for col in df_hist.columns:
+      df_hist[col] = df_hist[col].astype(tipo_categorico)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6.5), sharey=True)
+    perguntas = [
+        ("Viagem Internacional", axes[0], "Blues_d"),
+        ("Primeira vez no Cinema", axes[1], "Oranges_d"),
+        ("Primeira vez no Museu", axes[2], "Purples_d"),
+    ]
+    for col_nome, ax, palette in perguntas:
+      contagem_categoria = (
+          df_hist[col_nome]
+          .value_counts()
+          .reindex(categorias_unificadas, fill_value=0)
+          .reset_index()
+      )
+      contagem_categoria.columns = ["Idade", "Quantidade"]
+      sns.barplot(
+          data=contagem_categoria,
+          x="Idade",
+          y="Quantidade",
+          palette=palette,
+          hue="Idade",
+          legend=False,
+          edgecolor="black",
+          linewidth=1.2,
+          ax=ax,
+      )
+      for p in ax.patches:
+        height = p.get_height()
+        ax.annotate(
+            f"{int(height)}",
+            (p.get_x() + p.get_width() / 2.0, height),
+            ha="center",
+            va="center",
+            xytext=(0, 6),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+      ax.set_title(
+          f"Distribuição de Idade:\n{col_nome}",
+          fontsize=12,
+          fontweight="bold",
+          pad=10,
+      )
+      ax.set_xlabel("Idade", fontsize=10)
+      ax.set_xticks(range(len(categorias_unificadas)))
+      ax.set_xticklabels(
+          categorias_unificadas, rotation=45, ha="right", fontsize=9
+      )
+      ax.grid(axis="y", linestyle="--", alpha=0.5)
+
+    axes[0].set_ylabel(
+        "Quantidade de Respondentes", fontsize=11, fontweight="bold"
+    )
+    max_freq = max([df_hist[c].value_counts().max() for c in df_hist.columns])
+    for ax in axes:
+      ax.set_ylim(0, max_freq + 1.2)
+    plt.suptitle(
+        f"Idade do Capital Cultural",
+        fontsize=15,
+        fontweight="bold",
+        y=1.02,
+    )
+    plt.tight_layout()
+    plt.show()
+  else:
+    print(
+        f"Nenhum dado válido encontrado na aba {pagina} para criar a"
+        " visualização."
+    )
+grupos = ["Grupo_A", "Grupo_O", "Grupo_C", "Grupo_F", "Grupo_I", "Grupo_J", "Grupo_RU"]
+for grupo in grupos:
+  processar_e_plotar_grupo(grupo, planilha)
+def padronizar_idade(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "menor de 5" in val_limpo or "menos de 5" in val_limpo:
+    return "Menos de 5 anos"
+  elif (
+      "entre 5 e 10" in val_limpo
+      or "entre 5 e 11" in val_limpo
+      or "entre 6 e 10" in val_limpo
+  ):
+    return "Entre 5 e 10 anos"
+  elif "entre 11 e 18" in val_limpo:
+    return "Entre 11 e 18 anos"
+  elif "19 anos ou mais" in val_limpo:
+    return "19 anos ou mais"
+  elif "não sei" in val_limpo or "nao sei" in val_limpo:
+    return "Não sei"
+  return valor.strip()
+todas_as_linhas = []
+todas_as_abas = planilha.worksheets()
+print(f"Lendo {len(todas_as_abas)} páginas da planilha...")
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  try:
+    dados_aba = aba.get_all_records()
+    df_aba = pd.DataFrame(dados_aba)
+    col_8 = [c for c in df_aba.columns if ".8." in c.lower()]
+    col_15 = [c for c in df_aba.columns if ".15." in c.lower()]
+    col_17 = [c for c in df_aba.columns if ".17." in c.lower()]
+    if col_8 and col_15 and col_17:
+      for idx, row in df_aba.iterrows():
+        val_8 = row[col_8[0]]
+        val_15 = row[col_15[0]]
+        val_17 = row[col_17[0]]
+        if (
+            pd.notna(val_8)
+            and str(val_8).strip() != ""
+            and pd.notna(val_15)
+            and str(val_15).strip() != ""
+            and pd.notna(val_17)
+            and str(val_17).strip() != ""
+        ):
+          todas_as_linhas.append({
+              "Grupo": nome_pagina,
+              "Viagem Internacional": padronizar_idade(str(val_8)),
+              "Primeira vez no Cinema": padronizar_idade(str(val_15)),
+              "Primeira vez no Museu": padronizar_idade(str(val_17)),
+          })
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+df_geral = pd.DataFrame(todas_as_linhas)
+if not df_geral.empty:
+  categorias_unificadas = [
+      "Menos de 5 anos",
+      "Entre 5 e 10 anos",
+      "Entre 11 e 18 anos",
+      "19 anos ou mais",
+      "Não sei",
+  ]
+  tipo_categorico = pd.CategoricalDtype(
+      categories=categorias_unificadas, ordered=True
+  )
+  for col in ["Viagem Internacional", "Primeira vez no Cinema", "Primeira vez no Museu"]:
+    df_geral[col] = df_geral[col].astype(tipo_categorico)
+  fig, axes = plt.subplots(1, 3, figsize=(18, 6.5), sharey=True)
+  perguntas = [
+      ("Viagem Internacional", axes[0], "Blues_d"),
+      ("Primeira vez no Cinema", axes[1], "Oranges_d"),
+      ("Primeira vez no Museu", axes[2], "Purples_d"),
+  ]
+  for col_nome, ax, palette in perguntas:
+    contagem_categoria = (
+        df_geral[col_nome]
+        .value_counts()
+        .reindex(categorias_unificadas, fill_value=0)
+        .reset_index()
+    )
+    contagem_categoria.columns = ["Idade", "Quantidade"]
+    sns.barplot(
+        data=contagem_categoria,
+        x="Idade",
+        y="Quantidade",
+        palette=palette,
+        hue="Idade",
+        legend=False,
+        edgecolor="black",
+        linewidth=1.2,
+        ax=ax,
+    )
+    for p in ax.patches:
+      height = p.get_height()
+      ax.annotate(
+          f"{int(height)}",
+          (p.get_x() + p.get_width() / 2.0, height),
+          ha="center",
+          va="center",
+          xytext=(0, 6),
+          textcoords="offset points",
+          fontsize=10,
+          fontweight="bold",
+      )
+    ax.set_title(
+        f"Consolidado Geral:\n{col_nome}", fontsize=12, fontweight="bold", pad=10
+    )
+    ax.set_xlabel("Idade", fontsize=10)
+    ax.set_xticks(range(len(categorias_unificadas)))
+    ax.set_xticklabels(categorias_unificadas, rotation=45, ha="right", fontsize=9)
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+  axes[0].set_ylabel(
+      "Quantidade Total de Respondentes",
+      fontsize=11,
+      fontweight="bold",
+  )
+  max_freq = max(
+      [
+          df_geral["Viagem Internacional"].value_counts().max(),
+          df_geral["Primeira vez no Cinema"].value_counts().max(),
+          df_geral["Primeira vez no Museu"].value_counts().max(),
+      ]
+  )
+  for ax in axes:
+    ax.set_ylim(0, max_freq + 2.0)
+  plt.suptitle(
+      "Idade do Capital Cultural",
+      fontsize=15,
+      fontweight="bold",
+      y=1.02,
+  )
+  plt.tight_layout()
+  plt.show()
+else:
+  print("Nenhum dado válido encontrado em nenhuma das abas.")
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "sim" in val_limpo:
+    return "Sim"
+  elif "não" in val_limpo or "nao" in val_limpo:
+    return "Não"
+  return (
+      valor.strip().capitalize()
+  )
+todas_as_linhas = []
+todas_as_abas = planilha.worksheets()
+print(f"Lendo {len(todas_as_abas)} páginas da planilha...")
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  try:
+    dados_aba = aba.get_all_records()
+    df_aba = pd.DataFrame(dados_aba)
+    col_4 = [c for c in df_aba.columns if ".4." in c.lower()]
+    col_5 = [c for c in df_aba.columns if ".5." in c.lower()]
+    if col_4 and col_5:
+      for idx, row in df_aba.iterrows():
+        val_4 = row[col_4[0]]
+        val_5 = row[col_5[0]]
+        if (
+            pd.notna(val_4)
+            and str(val_4).strip() != ""
+            and pd.notna(val_5)
+            and str(val_5).strip() != ""
+        ):
+          todas_as_linhas.append({
+              "Grupo": nome_pagina,
+              "Recebe Auxílio": padronizar_resposta(str(val_4)),
+              "Auxílio para Intercâmbio": padronizar_resposta(str(val_5)),
+          })
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+df_relacao = pd.DataFrame(todas_as_linhas)
+if not df_relacao.empty:
+  fig, ax = plt.subplots(figsize=(10, 6))
+  sns.countplot(
+      data=df_relacao,
+      x="Recebe Auxílio",
+      hue="Auxílio para Intercâmbio",
+      palette="Blues",
+      edgecolor="black",
+      linewidth=1.2,
+      ax=ax,
+  )
+  for p in ax.patches:
+    height = p.get_height()
+    if height > 0:
+      ax.annotate(
+          f"{int(height)}",
+          (p.get_x() + p.get_width() / 2.0, height),
+          ha="center",
+          va="center",
+          xytext=(0, 6),
+          textcoords="offset points",
+          fontsize=10,
+          fontweight="bold",
+      )
+  ax.set_title(
+      "Recebimento ou não de Auxílio",
+      fontsize=14,
+      fontweight="bold",
+      pad=15,
+  )
+  ax.set_xlabel("Recebe algum Auxílio", fontsize=11, fontweight="bold")
+  ax.set_ylabel("Quantidade de Respondentes", fontsize=11, fontweight="bold")
+  ax.legend(title="Auxílio para o Intercâmbio", title_fontsize="10", fontsize=9)
+  ax.grid(axis="y", linestyle="--", alpha=0.5)
+  max_val = df_relacao.groupby(["Recebe Auxílio", "Auxílio para Intercâmbio"]).size().max()
+  ax.set_ylim(0, max_val + max_val * 0.15)
+
+  plt.tight_layout()
+  plt.show()
+else:
+  print(
+      "Nenhum dado válido encontrado para as perguntas .4. e .5. nas abas da"
+      " planilha."
+  )
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "sim" in val_limpo:
+    return "Sim"
+  elif "não" in val_limpo or "nao" in val_limpo:
+    return "Não"
+  return valor.strip().capitalize()
+def processar_e_plotar_relacao(pagina_titulo, planilha):
+  linhas_unica = []
+  try:
+    aba_selecionada = planilha.worksheet(pagina_titulo)
+    dados_aba = aba_selecionada.get_all_records()
+    df_aba = pd.DataFrame(dados_aba)
+    col_4 = [c for c in df_aba.columns if ".4." in c.lower()]
+    col_5 = [c for c in df_aba.columns if ".5." in c.lower()]
+    if col_4 and col_5:
+      for idx, row in df_aba.iterrows():
+        val_4 = row[col_4[0]]
+        val_5 = row[col_5[0]]
+        if (
+            pd.notna(val_4)
+            and str(val_4).strip() != ""
+            and pd.notna(val_5)
+            and str(val_5).strip() != ""
+        ):
+          linhas_unica.append({
+              "Recebe Auxílio": padronizar_resposta(str(val_4)),
+              "Auxílio para Intercâmbio": padronizar_resposta(str(val_5)),
+          })
+  except Exception as e:
+    print(f"Erro ao processar a aba '{pagina_titulo}': {e}")
+    return
+  df_relacao = pd.DataFrame(linhas_unica)
+  if not df_relacao.empty:
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.countplot(
+        data=df_relacao,
+        x="Recebe Auxílio",
+        hue="Auxílio para Intercâmbio",
+        palette="Blues",
+        edgecolor="black",
+        linewidth=1.2,
+        ax=ax,
+    )
+    for p in ax.patches:
+      height = p.get_height()
+      if height > 0:
+        ax.annotate(
+            f"{int(height)}",
+            (p.get_x() + p.get_width() / 2.0, height),
+            ha="center",
+            va="center",
+            xytext=(0, 6),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax.set_title(
+        f"Recebimento ou não de Auxílio",
+        fontsize=13,
+        fontweight="bold",
+        pad=15,
+    )
+    ax.set_xlabel("Recebe algum Auxílio", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Quantidade de Respondentes", fontsize=11, fontweight="bold")
+    ax.legend(title="Auxílio para o Intercâmbio", title_fontsize="10", fontsize=9)
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+    max_val = df_relacao.groupby(["Recebe Auxílio", "Auxílio para Intercâmbio"]).size().max()
+    ax.set_ylim(0, max_val + max_val * 0.2)
+    plt.tight_layout()
+    plt.show()
+  else:
+    print(
+        f"Nenhum dado válido encontrado para as perguntas .4. e .5. na aba"
+        f" '{pagina_titulo}'."
+    )
+todas_as_abas = planilha.worksheets()
+print(f"Total de páginas encontradas: {len(todas_as_abas)}")
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  print(f"Gerando gráfico de relação para a página: {nome_pagina}...")
+  processar_e_plotar_relacao(nome_pagina, planilha)
+def processar_multipla_resposta(serie_dados):
+  respostas_expandidas = []
+  for val in serie_dados:
+    if pd.notna(val) and str(val).strip() != "":
+      partes = str(val).replace(";", ",").split(",")
+      for p in partes:
+        limpo = p.strip().capitalize()
+        if limpo:
+          respostas_expandidas.append(limpo)
+  return pd.Series(respostas_expandidas).value_counts()
+print("--- GERANDO GRÁFICOS POR PÁGINA ---")
+todas_as_abas = planilha.worksheets()
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  try:
+    dados_aba = aba.get_all_records()
+    df_aba = pd.DataFrame(dados_aba)
+    col_12 = [c for c in df_aba.columns if ".12." in c.lower()]
+    if col_12:
+      contagem = processar_multipla_resposta(df_aba[col_12[0]])
+      if not contagem.empty:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        sns.barplot(
+            x=contagem.values,
+            y=contagem.index,
+            palette="Blues_r",
+            edgecolor="black",
+            linewidth=1.2,
+            ax=ax,
+        )
+        for p in ax.patches:
+          width = p.get_width()
+          if width > 0:
+            ax.annotate(
+                f"{int(width)}",
+                (width, p.get_y() + p.get_height() / 2.0),
+                ha="left",
+                va="center",
+                xytext=(5, 0),
+                textcoords="offset points",
+                fontsize=10,
+                fontweight="bold",
+            )
+        ax.set_title(
+            f"Línguas Faladas pelos Intercambistas",
+            fontsize=13,
+            fontweight="bold",
+            pad=15,
+        )
+        ax.set_xlabel("Quantidade de Menções", fontsize=11, fontweight="bold")
+        ax.set_ylabel("Línguas", fontsize=11, fontweight="bold")
+        ax.grid(axis="x", linestyle="--", alpha=0.5)
+        ax.set_xlim(0, contagem.max() * 1.15)
+        plt.tight_layout()
+        plt.show()
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO GRÁFICO CONSOLIDADO GERAL ---")
+todas_as_respostas_geral = []
+for aba in todas_as_abas:
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    col_12 = [c for c in df_aba.columns if ".12." in c.lower()]
+    if col_12:
+      for val in df_aba[col_12[0]]:
+        if pd.notna(val) and str(val).strip() != "":
+          partes = str(val).replace(";", ",").split(",")
+          for p in partes:
+            limpo = p.strip().capitalize()
+            if limpo:
+              todas_as_respostas_geral.append(limpo)
+  except Exception:
+    pass
+contagem_geral = pd.Series(todas_as_respostas_geral).value_counts()
+if not contagem_geral.empty:
+  fig, ax = plt.subplots(figsize=(10, 6))
+  sns.barplot(
+      x=contagem_geral.values,
+      y=contagem_geral.index,
+      palette="Purples_r",
+      edgecolor="black",
+      linewidth=1.2,
+      ax=ax,
+  )
+  for p in ax.patches:
+    width = p.get_width()
+    if width > 0:
+      ax.annotate(
+          f"{int(width)}",
+          (width, p.get_y() + p.get_height() / 2.0),
+          ha="left",
+          va="center",
+          xytext=(5, 0),
+          textcoords="offset points",
+          fontsize=10,
+          fontweight="bold",
+      )
+  ax.set_title(
+      "Línguas Faladas pelos Intercambistas",
+      fontsize=14,
+      fontweight="bold",
+      pad=15,
+  )
+  ax.set_xlabel("Quantidade Total de Menções", fontsize=11, fontweight="bold")
+  ax.set_ylabel("Línguas", fontsize=11, fontweight="bold")
+  ax.grid(axis="x", linestyle="--", alpha=0.5)
+  ax.set_xlim(0, contagem_geral.max() * 1.15)
+  plt.tight_layout()
+  plt.show()
+else:
+  print("Nenhum dado válido encontrado para a pergunta .12. nas abas.")
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+IDIOMA_POR_PAIS = {
+    "A": "Alemão",
+    "C": "Chinês",
+    "CS": "Coreano",
+    "E": "Espanhol",
+    "F": "Francês",
+    "I": "Italiano",
+    "RU": "Inglês",
+    "J": "Japonês"
+}
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "sim" in val_limpo:
+    return "Sim"
+  elif "não" in val_limpo or "nao" in val_limpo:
+    return "Não"
+  return valor.strip().capitalize()
+def extrair_dados_aba(df_aba, idioma_para_excluir=None):
+  col_13 = [c for c in df_aba.columns if ".13." in c.lower()]
+  col_14 = [c for c in df_aba.columns if ".14." in c.lower()]
+  respostas_13 = []
+  linguas_14 = []
+  if col_13 and col_14:
+    for idx, row in df_aba.iterrows():
+      val_13 = row[col_13[0]]
+      val_14 = row[col_14[0]]
+      if pd.notna(val_13) and str(val_13).strip() != "":
+        respostas_13.append(padronizar_resposta(str(val_13)))
+      if pd.notna(val_14) and str(val_14).strip() != "":
+        linguas = str(val_14).replace(";", ",").split(",")
+        for l in linguas:
+          l_limpa = l.strip().capitalize()
+          if l_limpa and l_limpa != idioma_para_excluir:
+            linguas_14.append(l_limpa)
+  return pd.Series(respostas_13), pd.Series(linguas_14)
+def gerar_painel_duplo(serie_13, serie_14, titulo_sufixo):
+  fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+  if not serie_13.empty:
+    contagem_13 = serie_13.value_counts()
+    sns.barplot(
+        x=contagem_13.index,
+        y=contagem_13.values,
+        color="#2ca02c",
+        edgecolor="black",
+        linewidth=1.2,
+        ax=axes[0],
+    )
+    for p in axes[0].patches:
+      height = p.get_height()
+      if height > 0:
+        axes[0].annotate(
+            f"{int(height)}",
+            (p.get_x() + p.get_width() / 2.0, height),
+            ha="center",
+            va="bottom",
+            xytext=(0, 4),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+    axes[0].set_title(
+        f"Fala mais de uma língua",
+        fontsize=12,
+        fontweight="bold",
+        pad=10,
+    )
+    axes[0].set_xlabel("Resposta", fontsize=10, fontweight="bold")
+    axes[0].set_ylabel("Quantidade de Pessoas", fontsize=10, fontweight="bold")
+    axes[0].grid(axis="y", linestyle="--", alpha=0.5)
+    axes[0].set_ylim(0, contagem_13.max() * 1.2)
+  if not serie_14.empty:
+    contagem_14 = serie_14.value_counts()
+    sns.barplot(
+        x=contagem_14.values,
+        y=contagem_14.index,
+        color="#1f77b4",
+        edgecolor="black",
+        linewidth=1.2,
+        ax=axes[1],
+    )
+    for p in axes[1].patches:
+      width = p.get_width()
+      if width > 0:
+        axes[1].annotate(
+            f"{int(width)}",
+            (width, p.get_y() + p.get_height() / 2.0),
+            ha="left",
+            va="center",
+            xytext=(5, 0),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+    axes[1].set_title(
+        f"Línguas Faladas (sem a nativa)",
+        fontsize=12,
+        fontweight="bold",
+        pad=10,
+    )
+    axes[1].set_xlabel("Quantidade de Menções", fontsize=10, fontweight="bold")
+    axes[1].set_ylabel("Língua", fontsize=10, fontweight="bold")
+    axes[1].grid(axis="x", linestyle="--", alpha=0.5)
+    axes[1].set_xlim(0, contagem_14.max() * 1.25)
+  plt.tight_layout()
+  plt.show()
+print("--- GERANDO PAINÉIS DUPLOS POR PÁGINA ---")
+todas_as_abas = planilha.worksheets()
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  sigla_pais = nome_pagina.replace("Grupo_", "").upper()
+  idioma_nativo = IDIOMA_POR_PAIS.get(sigla_pais, None)
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s13, s14 = extrair_dados_aba(df_aba, idioma_para_excluir=idioma_nativo)
+
+    if not s13.empty or not s14.empty:
+      exclusao_txt = (
+          f"Excluindo nativo" if idioma_nativo else ""
+      )
+      gerar_painel_duplo(s13, s14, f"Página: {nome_pagina}{exclusao_txt}")
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO PAINEL DUPLO CONSOLIDADO GERAL ---")
+todas_s13 = []
+todas_s14 = []
+for aba in todas_as_abas:
+  sigla_pais = aba.title.replace("Grupo_", "").upper()
+  idioma_nativo = IDIOMA_POR_PAIS.get(sigla_pais, None)
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s13, s14 = extrair_dados_aba(df_aba, idioma_para_excluir=idioma_nativo)
+    if not s13.empty:
+      todas_s13.append(s13)
+    if not s14.empty:
+      todas_s14.append(s14)
+  except Exception:
+    pass
+serie_geral_13 = pd.concat(todas_s13, ignore_index=True) if todas_s13 else pd.Series()
+serie_geral_14 = pd.concat(todas_s14, ignore_index=True) if todas_s14 else pd.Series()
+if not serie_geral_13.empty or not serie_geral_14.empty:
+  gerar_painel_duplo(
+      serie_geral_13,
+      serie_geral_14,
+      "Todas as respostas",
+  )
+else:
+  print("Nenhum dado encontrado para consolidar.")
+IDIOMA_POR_PAIS = {
+    "A": "Alemão",
+    "C": "Chinês",
+    "CS": "Coreano",
+    "E": "Espanhol",
+    "F": "Francês",
+    "I": "Italiano",
+    "RU": "Inglês",
+    "J": "Japonês"
+}
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "sim" in val_limpo:
+    return "Sim"
+  elif "não" in val_limpo or "nao" in val_limpo:
+    return "Não"
+  return valor.strip().capitalize()
+def extrair_dados_aba(df_aba, idioma_para_excluir=None):
+  col_13 = [c for c in df_aba.columns if ".19." in c.lower()]
+  col_14 = [c for c in df_aba.columns if ".20." in c.lower()]
+  respostas_13 = []
+  linguas_14 = []
+  if col_13 and col_14:
+    for idx, row in df_aba.iterrows():
+      val_13 = row[col_13[0]]
+      val_14 = row[col_14[0]]
+      if pd.notna(val_13) and str(val_13).strip() != "":
+        respostas_13.append(padronizar_resposta(str(val_13)))
+      if pd.notna(val_14) and str(val_14).strip() != "":
+        linguas = str(val_14).replace(";", ",").split(",")
+        for l in linguas:
+          l_limpa = l.strip().capitalize()
+          if l_limpa and l_limpa != idioma_para_excluir:
+            linguas_14.append(l_limpa)
+  return pd.Series(respostas_13), pd.Series(linguas_14)
+def gerar_painel_duplo(serie_13, serie_14, titulo_sufixo):
+  fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+  if not serie_13.empty:
+    contagem_13 = serie_13.value_counts()
+    sns.barplot(
+        x=contagem_13.index,
+        y=contagem_13.values,
+        color="#2ca02c",
+        edgecolor="black",
+        linewidth=1.2,
+        ax=axes[0],
+    )
+    for p in axes[0].patches:
+      height = p.get_height()
+      if height > 0:
+        axes[0].annotate(
+            f"{int(height)}",
+            (p.get_x() + p.get_width() / 2.0, height),
+            ha="center",
+            va="bottom",
+            xytext=(0, 4),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+    axes[0].set_title(
+        f"Alguém lia para você?",
+        fontsize=12,
+        fontweight="bold",
+        pad=10,
+    )
+    axes[0].set_xlabel("Resposta", fontsize=10, fontweight="bold")
+    axes[0].set_ylabel("Quantidade de Pessoas", fontsize=10, fontweight="bold")
+    axes[0].grid(axis="y", linestyle="--", alpha=0.5)
+    axes[0].set_ylim(0, contagem_13.max() * 1.2)
+  if not serie_14.empty:
+    contagem_14 = serie_14.value_counts()
+    sns.barplot(
+        x=contagem_14.values,
+        y=contagem_14.index,
+        color="#1f77b4",
+        edgecolor="black",
+        linewidth=1.2,
+        ax=axes[1],
+    )
+    for p in axes[1].patches:
+      width = p.get_width()
+      if width > 0:
+        axes[1].annotate(
+            f"{int(width)}",
+            (width, p.get_y() + p.get_height() / 2.0),
+            ha="left",
+            va="center",
+            xytext=(5, 0),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+        )
+    axes[1].set_title(
+        f"Línguas dos livros (sem a nativa)",
+        fontsize=12,
+        fontweight="bold",
+        pad=10,
+    )
+    axes[1].set_xlabel("Quantidade de Menções", fontsize=10, fontweight="bold")
+    axes[1].set_ylabel("Língua", fontsize=10, fontweight="bold")
+    axes[1].grid(axis="x", linestyle="--", alpha=0.5)
+    axes[1].set_xlim(0, contagem_14.max() * 1.25)
+  plt.tight_layout()
+  plt.show()
+print("--- GERANDO PAINÉIS DUPLOS POR PÁGINA ---")
+todas_as_abas = planilha.worksheets()
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  sigla_pais = nome_pagina.replace("Grupo_", "").upper()
+  idioma_nativo = IDIOMA_POR_PAIS.get(sigla_pais, None)
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s13, s14 = extrair_dados_aba(df_aba, idioma_para_excluir=idioma_nativo)
+    if not s13.empty or not s14.empty:
+      exclusao_txt = (
+          f"Excluindo nativo" if idioma_nativo else ""
+      )
+      gerar_painel_duplo(s13, s14, f"Página: {nome_pagina}{exclusao_txt}")
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO PAINEL DUPLO CONSOLIDADO GERAL ---")
+todas_s13 = []
+todas_s14 = []
+for aba in todas_as_abas:
+  sigla_pais = aba.title.replace("Grupo_", "").upper()
+  idioma_nativo = IDIOMA_POR_PAIS.get(sigla_pais, None)
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s13, s14 = extrair_dados_aba(df_aba, idioma_para_excluir=idioma_nativo)
+    if not s13.empty:
+      todas_s13.append(s13)
+    if not s14.empty:
+      todas_s14.append(s14)
+  except Exception:
+    pass
+serie_geral_13 = pd.concat(todas_s13, ignore_index=True) if todas_s13 else pd.Series()
+serie_geral_14 = pd.concat(todas_s14, ignore_index=True) if todas_s14 else pd.Series()
+if not serie_geral_13.empty or not serie_geral_14.empty:
+  gerar_painel_duplo(
+      serie_geral_13,
+      serie_geral_14,
+      "Todas as respostas",
+  )
+else:
+  print("Nenhum dado encontrado para consolidar.")
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip()
+  val_lower = val_limpo.lower()
+  if val_lower == "sim":
+    return "Sim"
+  elif val_lower == "não" or val_lower == "nao":
+    return "Não"
+  elif "não-binário" in val_lower or "nao-binario" in val_lower:
+    return "Não-binário"
+  return val_limpo[0].upper() + val_limpo[1:] if len(val_limpo) > 0 else val_limpo
+def extrair_dados_22(df_aba):
+  col_22 = [c for c in df_aba.columns if ".22." in c.lower()]
+  respostas_22 = []
+  if col_22:
+    for idx, row in df_aba.iterrows():
+      val_22 = row[col_22[0]]
+      if pd.notna(val_22) and str(val_22).strip() != "":
+        respostas_22.append(padronizar_resposta(str(val_22)))
+  return pd.Series(respostas_22)
+def gerar_grafico_pizza_22(serie_22, titulo_sufixo):
+  if serie_22.empty:
+    return
+  contagem_22 = serie_22.value_counts()
+  plt.figure(figsize=(7, 6))
+  plt.pie(
+      contagem_22.values,
+      labels=contagem_22.index,
+      autopct="%1.1f%%",
+      startangle=140,
+      colors=sns.color_palette("pastel"),
+      wedgeprops={"edgecolor": "black", "linewidth": 1},
+  )
+  plt.title(
+      f"Gênero entre os intercambistas", fontsize=12, fontweight="bold", pad=15
+  )
+  plt.tight_layout()
+  plt.show()
+print("--- GERANDO GRÁFICOS POR PÁGINA ---")
+todas_as_abas = planilha.worksheets()
+todas_respostas_22 = []
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  if "formulário" in nome_pagina.lower():
+    continue
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s22 = extrair_dados_22(df_aba)
+    if not s22.empty:
+      todas_respostas_22.append(s22)
+      gerar_grafico_pizza_22(s22, f"Página: {nome_pagina}")
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO GRÁFICO CONSOLIDADO GERAL ---")
+if todas_respostas_22:
+  serie_geral_22 = pd.concat(todas_respostas_22, ignore_index=True)
+  gerar_grafico_pizza_22(serie_geral_22, "Gênero entre todos os intercambistas")
+else:
+  print("Nenhum dado válido de identidade de gênero pôde ser consolidado das abas.")
+def padronizar_resposta(valor):
+  if not isinstance(valor, str):
+    return valor
+  val_limpo = valor.strip().lower()
+  if "sim" in val_limpo:
+    return "Sim"
+  elif "não" in val_limpo or "nao" in val_limpo:
+    return "Não"
+  return valor.strip().capitalize()
+def extrair_dados_22(df_aba):
+  col_22 = [c for c in df_aba.columns if ".21." in c.lower()]
+  respostas_22 = []
+  if col_22:
+    for idx, row in df_aba.iterrows():
+      val_22 = row[col_22[0]]
+      if pd.notna(val_22) and str(val_22).strip() != "":
+        respostas_22.append(padronizar_resposta(str(val_22)))
+  return pd.Series(respostas_22)
+def gerar_grafico_pizza_22(serie_22, titulo_sufixo):
+  if serie_22.empty:
+    return
+  contagem_22 = serie_22.value_counts()
+  plt.figure(figsize=(7, 6))
+  plt.pie(
+      contagem_22.values,
+      labels=contagem_22.index,
+      autopct="%1.1f%%",
+      startangle=140,
+      colors=sns.color_palette("GnBu"),
+      wedgeprops={"edgecolor": "black", "linewidth": 1},
+  )
+  plt.title(
+      f"idade dos intercambistas", fontsize=12, fontweight="bold", pad=15
+  )
+  plt.tight_layout()
+  plt.show()
+print("--- GERANDO GRÁFICOS POR PÁGINA ---")
+todas_as_abas = planilha.worksheets()
+todas_respostas_22 = []
+for aba in todas_as_abas:
+  nome_pagina = aba.title
+  try:
+    df_aba = pd.DataFrame(aba.get_all_records())
+    s22 = extrair_dados_22(df_aba)
+    if not s22.empty:
+      todas_respostas_22.append(s22)
+      gerar_grafico_pizza_22(s22, f"Página: {nome_pagina}")
+  except Exception as e:
+    print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO GRÁFICO CONSOLIDADO GERAL ---")
+if todas_respostas_22:
+  serie_geral_22 = pd.concat(todas_respostas_22, ignore_index=True)
+  gerar_grafico_pizza_22(serie_geral_22, "Idade entre todos os intercambistas")
+else:
+  print("Nenhum dado válido de identidade de gênero pôde ser consolidado das abas.")
+def quebrar_texto(texto, largura=25):
+    if not isinstance(texto, str):
+        return texto
+    return '\n'.join(textwrap.wrap(texto, width=largura))
+def padronizar_respostas(valor):
+    if not isinstance(valor, str):
+        return valor
+    val_limpo = valor.strip()
+    return val_limpo[0].upper() + val_limpo[1:] if len(val_limpo) > 0 else val_limpo
+def extrair_dados_perguntas(df_aba):
+    col_28 = [c for c in df_aba.columns if '.28.' in c.lower()]
+    col_29 = [c for c in df_aba.columns if '.29.' in c.lower()]
+    s28 = pd.Series(dtype=str)
+    s29 = pd.Series(dtype=str)
+    nome_28 = "Pergunta .28."
+    nome_29 = "Pergunta .29."
+    if col_28:
+        nome_28 = col_28[0]
+        s28 = df_aba[col_28[0]].dropna().astype(str).str.strip()
+        s28 = s28[s28 != ""].apply(padronizar_respostas)
+    if col_29:
+        nome_29 = col_29[0]
+        s29 = df_aba[col_29[0]].dropna().astype(str).str.strip()
+        s29 = s29[s29 != ""].apply(padronizar_respostas)
+    return s28, s29, nome_28, nome_29
+def plotar_painel_duplo(s28, s29, titulo_painel, label_28, label_29):
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    if not s28.empty:
+        contagem_28 = s28.value_counts().sort_index()
+        sns.barplot(
+            x=[quebrar_texto(idx, 15) for idx in contagem_28.index],
+            y=contagem_28.values,
+            palette="Blues_d",
+            hue=[quebrar_texto(idx, 15) for idx in contagem_28.index],
+            legend=False,
+            edgecolor="black",
+            linewidth=1,
+            ax=axes[0]
+        )
+        axes[0].set_title(quebrar_texto(label_28, 45), fontsize=11, fontweight='bold', pad=10)
+        axes[0].set_ylabel("Quantidade de Respondentes", fontsize=10)
+        axes[0].set_xlabel("Respostas", fontsize=10)
+        axes[0].grid(axis='y', linestyle='--', alpha=0.5)
+        for p in axes[0].patches:
+            height = p.get_height()
+            if height > 0:
+                axes[0].annotate(f'{int(height)}',
+                                 (p.get_x() + p.get_width() / 2., height),
+                                 ha='center', va='bottom', xytext=(0, 4),
+                                 textcoords='offset points', fontsize=9, fontweight='bold')
+        axes[0].set_ylim(0, contagem_28.max() * 1.15)
+    else:
+        axes[0].text(0.5, 0.5, "Dados insuficientes para .28.", ha='center', va='center')
+        axes[0].set_title("Pergunta .28. sem dados")
+    if not s29.empty:
+        contagem_29 = s29.value_counts()
+        sns.barplot(
+            x=contagem_29.values,
+            y=[quebrar_texto(idx, 25) for idx in contagem_29.index],
+            palette="Purples_r",
+            hue=[quebrar_texto(idx, 25) for idx in contagem_29.index],
+            legend=False,
+            edgecolor="black",
+            linewidth=1,
+            ax=axes[1]
+        )
+        axes[1].set_title(quebrar_texto(label_29, 45), fontsize=11, fontweight='bold', pad=10)
+        axes[1].set_xlabel("Quantidade de Respondentes", fontsize=10)
+        axes[1].set_ylabel("Relação", fontsize=10)
+        axes[1].grid(axis='x', linestyle='--', alpha=0.5)
+        for p in axes[1].patches:
+            width = p.get_width()
+            if width > 0:
+                axes[1].annotate(f'{int(width)}',
+                                 (width, p.get_y() + p.get_height() / 2.),
+                                 ha='left', va='center', xytext=(5, 0),
+                                 textcoords='offset points', fontsize=9, fontweight='bold')
+        axes[1].set_xlim(0, contagem_29.max() * 1.15)
+    else:
+        axes[1].text(0.5, 0.5, "Dados insuficientes para .29.", ha='center', va='center')
+        axes[1].set_title("Pergunta .29. sem dados")
+    plt.suptitle(titulo_painel, fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    plt.show()
+print("--- GERANDO PAINÉIS INDIVIDUAIS ---")
+todas_as_abas = planilha.worksheets()
+lista_s28 = []
+lista_s29 = []
+label_geral_28 = "Pergunta .28."
+label_geral_29 = "Pergunta .29."
+for aba in todas_as_abas:
+    nome_pagina = aba.title
+    if "formulário" in nome_pagina.lower():
+        continue
+    try:
+        df_aba = pd.DataFrame(aba.get_all_records())
+        s28, s29, n28, n29 = extrair_dados_perguntas(df_aba)
+        if not s28.empty:
+            lista_s28.append(s28)
+            if len(n28) > len(label_geral_28):
+                label_geral_28 = n28
+        if not s29.empty:
+            lista_s29.append(s29)
+            if len(n29) > len(label_geral_29):
+                label_geral_29 = n29
+        if not s28.empty or not s29.empty:
+            plotar_painel_duplo(s28, s29, f"", n28, n29)
+    except Exception as e:
+        print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO PAINEL CONSOLIDADO GERAL ---")
+if lista_s28 or lista_s29:
+    serie_geral_28 = pd.concat(lista_s28, ignore_index=True) if lista_s28 else pd.Series(dtype=str)
+    serie_geral_29 = pd.concat(lista_s29, ignore_index=True) if lista_s29 else pd.Series(dtype=str)
+    plotar_painel_duplo(
+        serie_geral_28,
+        serie_geral_29,
+        "",
+        label_geral_28,
+        label_geral_29
+    )
+else:
+    print("Nenhum dado das perguntas .28 ou .29 foi localizado para consolidação.")
+def quebrar_texto(texto, largura=20):
+    if not isinstance(texto, str):
+        return texto
+    return '\n'.join(textwrap.wrap(texto, width=largura))
+def padronizar_respostas(valor):
+    if not isinstance(valor, str):
+        return valor
+    val_limpo = valor.strip()
+    return val_limpo[0].upper() + val_limpo[1:] if len(val_limpo) > 0 else val_limpo
+def extrair_dados_tres_perguntas(df_aba):
+    col_26 = [c for c in df_aba.columns if '.26.' in c.lower()]
+    col_27 = [c for c in df_aba.columns if '.27.' in c.lower()]
+    col_36 = [c for c in df_aba.columns if '.36.' in c.lower()]
+    s26 = pd.Series(dtype=str)
+    s27 = pd.Series(dtype=str)
+    s36 = pd.Series(dtype=str)
+    nome_26 = "Pergunta .26."
+    nome_27 = "Pergunta .27."
+    nome_36 = "Pergunta .36."
+    if col_26:
+        nome_26 = col_26[0]
+        s26 = df_aba[col_26[0]].dropna().astype(str).str.strip()
+        s26 = s26[s26 != ""].apply(padronizar_respostas)
+    if col_27:
+        nome_27 = col_27[0]
+        s27 = df_aba[col_27[0]].dropna().astype(str).str.strip()
+        s27 = s27[s27 != ""].apply(padronizar_respostas)
+    if col_36:
+        nome_36 = col_36[0]
+        s36 = df_aba[col_36[0]].dropna().astype(str).str.strip()
+        s36 = s36[s36 != ""].apply(padronizar_respostas)
+    return s26, s27, s36, nome_26, nome_27, nome_36
+def plotar_painel_triplo(s26, s27, s36, titulo_painel, label_26, label_27, label_36):
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6.5))
+    if not s26.empty:
+        contagem_26 = s26.value_counts().sort_index()
+        sns.barplot(
+            x=[quebrar_texto(idx, 15) for idx in contagem_26.index],
+            y=contagem_26.values,
+            palette="Blues_d",
+            hue=[quebrar_texto(idx, 15) for idx in contagem_26.index],
+            legend=False,
+            edgecolor="black",
+            linewidth=1,
+            ax=axes[0]
+        )
+        axes[0].set_title(quebrar_texto(label_26, 40), fontsize=10, fontweight='bold', pad=10)
+        axes[0].set_ylabel("Quantidade de Respondentes", fontsize=9)
+        axes[0].set_xlabel("Respostas", fontsize=9)
+        axes[0].grid(axis='y', linestyle='--', alpha=0.5)
+        axes[0].tick_params(axis='x', rotation=30)
+        for p in axes[0].patches:
+            height = p.get_height()
+            if height > 0:
+                axes[0].annotate(f'{int(height)}',
+                                 (p.get_x() + p.get_width() / 2., height),
+                                 ha='center', va='bottom', xytext=(0, 4),
+                                 textcoords='offset points', fontsize=9, fontweight='bold')
+        axes[0].set_ylim(0, contagem_26.max() * 1.15)
+    else:
+        axes[0].text(0.5, 0.5, "Sem dados para .26.", ha='center', va='center')
+        axes[0].set_title("Pergunta .26. sem dados")
+    if not s27.empty:
+        contagem_27 = s27.value_counts().sort_index()
+        sns.barplot(
+            x=[quebrar_texto(idx, 15) for idx in contagem_27.index],
+            y=contagem_27.values,
+            palette="Oranges_d",
+            hue=[quebrar_texto(idx, 15) for idx in contagem_27.index],
+            legend=False,
+            edgecolor="black",
+            linewidth=1,
+            ax=axes[1]
+        )
+        axes[1].set_title(quebrar_texto(label_27, 40), fontsize=10, fontweight='bold', pad=10)
+        axes[1].set_ylabel("Quantidade de Respondentes", fontsize=9)
+        axes[1].set_xlabel("Respostas", fontsize=9)
+        axes[1].grid(axis='y', linestyle='--', alpha=0.5)
+        axes[1].tick_params(axis='x', rotation=30)
+
+        for p in axes[1].patches:
+            height = p.get_height()
+            if height > 0:
+                axes[1].annotate(f'{int(height)}',
+                                 (p.get_x() + p.get_width() / 2., height),
+                                 ha='center', va='bottom', xytext=(0, 4),
+                                 textcoords='offset points', fontsize=9, fontweight='bold')
+        axes[1].set_ylim(0, contagem_27.max() * 1.15)
+    else:
+        axes[1].text(0.5, 0.5, "Sem dados para .27.", ha='center', va='center')
+        axes[1].set_title("Pergunta .27. sem dados")
+    if not s36.empty:
+        contagem_36 = s36.value_counts().sort_index()
+        sns.barplot(
+            x=[quebrar_texto(idx, 15) for idx in contagem_36.index],
+            y=contagem_36.values,
+            palette="Purples_d",
+            hue=[quebrar_texto(idx, 15) for idx in contagem_36.index],
+            legend=False,
+            edgecolor="black",
+            linewidth=1,
+            ax=axes[2]
+        )
+        axes[2].set_title(quebrar_texto(label_36, 40), fontsize=10, fontweight='bold', pad=10)
+        axes[2].set_ylabel("Quantidade de Respondentes", fontsize=9)
+        axes[2].set_xlabel("Respostas", fontsize=9)
+        axes[2].grid(axis='y', linestyle='--', alpha=0.5)
+        axes[2].tick_params(axis='x', rotation=30)
+        for p in axes[2].patches:
+            height = p.get_height()
+            if height > 0:
+                axes[2].annotate(f'{int(height)}',
+                                 (p.get_x() + p.get_width() / 2., height),
+                                 ha='center', va='bottom', xytext=(0, 4),
+                                 textcoords='offset points', fontsize=9, fontweight='bold')
+        axes[2].set_ylim(0, contagem_36.max() * 1.15)
+    else:
+        axes[2].text(0.5, 0.5, "Sem dados para .36.", ha='center', va='center')
+        axes[2].set_title("Pergunta .36. sem dados")
+    plt.suptitle(titulo_painel, fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    plt.show()
+print("--- GERANDO PAINÉIS INDIVIDUAIS ---")
+todas_as_abas = planilha.worksheets()
+lista_s26 = []
+lista_s27 = []
+lista_s36 = []
+label_geral_26 = "Pergunta .26."
+label_geral_27 = "Pergunta .27."
+label_geral_36 = "Pergunta .36."
+for aba in todas_as_abas:
+    nome_pagina = aba.title
+    if "formulário" in nome_pagina.lower():
+        continue
+    try:
+        df_aba = pd.DataFrame(aba.get_all_records())
+        s26, s27, s36, n26, n27, n36 = extrair_dados_tres_perguntas(df_aba)
+        if not s26.empty:
+            lista_s26.append(s26)
+            if len(n26) > len(label_geral_26):
+                label_geral_26 = n26
+        if not s27.empty:
+            lista_s27.append(s27)
+            if len(n27) > len(label_geral_27):
+                label_geral_27 = n27
+        if not s36.empty:
+            lista_s36.append(s36)
+            if len(n36) > len(label_geral_36):
+                label_geral_36 = n36
+        if not s26.empty or not s27.empty or not s36.empty:
+            plotar_painel_triplo(s26, s27, s36, f"Dados de capital econômico de outra natureza", n26, n27, n36)
+    except Exception as e:
+        print(f"Erro ao processar a aba '{nome_pagina}': {e}")
+print("--- GERANDO PAINEL CONSOLIDADO GERAL ---")
+if lista_s26 or lista_s27 or lista_s36:
+    serie_geral_26 = pd.concat(lista_s26, ignore_index=True) if lista_s26 else pd.Series(dtype=str)
+    serie_geral_27 = pd.concat(lista_s27, ignore_index=True) if lista_s27 else pd.Series(dtype=str)
+    serie_geral_36 = pd.concat(lista_s36, ignore_index=True) if lista_s36 else pd.Series(dtype=str)
+    plotar_painel_triplo(
+        serie_geral_26,
+        serie_geral_27,
+        serie_geral_36,
+        "Dados de capital econômico de outra natureza para todos os intercambistas",
+        label_geral_26,
+        label_geral_27,
+        label_geral_36
+    )
+else:
+    print("Nenhum dado das perguntas .26, .27 ou .36 foi localizado para consolidação.")
